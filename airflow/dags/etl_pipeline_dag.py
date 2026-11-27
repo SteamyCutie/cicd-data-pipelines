@@ -1,4 +1,5 @@
 """Publish a daily, fully tested rebuild on one host with a shared warehouse directory."""
+
 import hashlib
 import os
 from datetime import timedelta
@@ -36,6 +37,7 @@ def publish_candidate(path):
     # Copy using DuckDB's checkpointed single file, then atomically promote.
     # Keep the run-scoped candidate until publication so a failed retry can resume.
     import shutil
+
     with duckdb.connect(path, read_only=True) as db:
         count, cents = db.execute(
             "select sum(orders_placed), sum(revenue_cents) from analytics.fct_daily_revenue"
@@ -56,9 +58,21 @@ with DAG(
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=30),
-    default_args={"owner": "analytics", "retries": 2, "retry_delay": timedelta(minutes=2)},
+    default_args={
+        "owner": "analytics",
+        "retries": 2,
+        "retry_delay": timedelta(minutes=2),
+    },
     tags=["retail", "dbt"],
 ) as dag:
     prepare = PythonOperator(task_id="prepare", python_callable=candidate_path)
-    build = PythonOperator(task_id="build_and_test", python_callable=build_candidate, op_kwargs={"path": prepare.output})
-    publish = PythonOperator(task_id="publish", python_callable=publish_candidate, op_kwargs={"path": build.output})
+    build = PythonOperator(
+        task_id="build_and_test",
+        python_callable=build_candidate,
+        op_kwargs={"path": prepare.output},
+    )
+    publish = PythonOperator(
+        task_id="publish",
+        python_callable=publish_candidate,
+        op_kwargs={"path": build.output},
+    )

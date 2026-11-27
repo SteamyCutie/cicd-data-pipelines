@@ -20,6 +20,8 @@ jobs:
         working-directory: dbt_project
       - if: always()
         run: python scripts/dbt_summary.py >> "$GITHUB_STEP_SUMMARY"
+      - name: Prove the amount check rejects a corrupted fixture
+        run: python scripts/negative_control.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

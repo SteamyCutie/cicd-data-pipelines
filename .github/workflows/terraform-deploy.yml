@@ -7,6 +7,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 jobs:
   hooks:
     uses: ./.github/workflows/pre-commit-check.yml
@@ -51,6 +54,16 @@ jobs:
     permissions:
       pull-requests: write
     steps:
+      - uses: actions/download-artifact@v4
+        if: needs.analytics.result == 'success'
+        with:
+          name: dbt-evidence
+          path: dbt-evidence
+      - uses: actions/download-artifact@v4
+        if: needs.preview.result == 'success'
+        with:
+          name: terraform-previews
+          path: previews
       - name: Summarize required checks
         env:
           RESULTS: ${{ toJSON(needs) }}
@@ -62,6 +75,15 @@ jobs:
           {
             echo '### Data pipeline checks'
             jq -r 'to_entries[] | "- " + .key + ": " + .value.result' <<< "$RESULTS"
+            if [[ -f dbt-evidence/run_results.json ]]; then
+              passed=$(jq '[.results[] | select(.status == "pass")] | length' dbt-evidence/run_results.json)
+              echo "Passed dbt data tests: $passed"
+            fi
+            for stage in dev staging prod; do
+              if [[ -f previews/$stage.txt ]]; then
+                echo "$stage $(grep -E '^Plan: [0-9]+ to add, [0-9]+ to change, [0-9]+ to destroy\.' "previews/$stage.txt")"
+              fi
+            done
             echo "Run, test reports and Terraform previews: $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
           } > "$RUNNER_TEMP/report.md"
           cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"

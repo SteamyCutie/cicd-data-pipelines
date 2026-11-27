@@ -28,7 +28,9 @@ def test_contract(dag):
 def test_failed_build_propagates(dag, tmp_path):
     with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "dbt")):
         with pytest.raises(subprocess.CalledProcessError):
-            dag.get_task("build_and_test").python_callable(str(tmp_path / "candidate.duckdb"))
+            dag.get_task("build_and_test").python_callable(
+                str(tmp_path / "candidate.duckdb")
+            )
 
 
 def test_publish_rejects_bad_candidate(dag, tmp_path):
@@ -44,4 +46,6 @@ def test_full_dag(dag, tmp_path, monkeypatch):
     result = dag.test(execution_date=pendulum.datetime(2025, 6, 4, tz="UTC"))
     assert result.state == "success"
     with duckdb.connect(str(tmp_path / "retail.duckdb"), read_only=True) as db:
-        assert db.execute("select sum(orders_placed), sum(revenue_cents) from analytics.fct_daily_revenue").fetchone() == (5, 7000)
+        assert db.execute(
+            "select sum(orders_placed), sum(revenue_cents) from analytics.fct_daily_revenue"
+        ).fetchone() == (5, 7000)
