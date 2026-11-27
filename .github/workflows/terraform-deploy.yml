@@ -1,0 +1,91 @@
+name: Data pipeline delivery
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  hooks:
+    uses: ./.github/workflows/pre-commit-check.yml
+  analytics:
+    uses: ./.github/workflows/dbt-ci.yml
+  orchestration:
+    uses: ./.github/workflows/airflow-tests.yml
+  preview:
+    name: Terraform preview
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2
+          terraform_wrapper: false
+      - run: terraform -chdir=terraform fmt -check -recursive
+      - name: Plan all environments against empty local state
+        env:
+          TF_VAR_project_id: ci-preview-project
+          GOOGLE_OAUTH_ACCESS_TOKEN: offline-preview-placeholder
+        run: |
+          dir="$RUNNER_TEMP/preview"
+          mkdir "$dir"
+          cp terraform/{main.tf,variables.tf,outputs.tf,.terraform.lock.hcl} "$dir/"
+          terraform -chdir="$dir" init -input=false -lockfile=readonly
+          terraform -chdir="$dir" validate
+          for stage in dev staging prod; do
+            terraform -chdir="$dir" plan -input=false -refresh=false -no-color \
+              -var-file="$GITHUB_WORKSPACE/terraform/environments/$stage.tfvars" | tee "$dir/$stage.txt"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraform-previews
+          path: ${{ runner.temp }}/preview/*.txt
+          retention-days: 14
+  report:
+    name: Delivery verdict
+    runs-on: ubuntu-latest
+    needs: [hooks, analytics, orchestration, preview]
+    if: always()
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Summarize required checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          PR: ${{ github.event.pull_request.number }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo '### Data pipeline checks'
+            jq -r 'to_entries[] | "- " + .key + ": " + .value.result' <<< "$RESULTS"
+            echo "Run, test reports and Terraform previews: $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+          } > "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$PR" && "$SAME_REPO" == true ]]; then
+            gh pr comment "$PR" --repo "$REPO" --body-file "$RUNNER_TEMP/report.md"
+          fi
+          jq -e 'all(.[]; .result == "success")' <<< "$RESULTS"
+  dev:
+    needs: report
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/develop' && vars.CLOUD_DEPLOY_ENABLED == 'true'
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      stage: dev
+    permissions: {contents: read, id-token: write}
+  staging:
+    needs: report
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.CLOUD_DEPLOY_ENABLED == 'true'
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      stage: staging
+    permissions: {contents: read, id-token: write}
+  production:
+    needs: staging
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      stage: prod
+    permissions: {contents: read, id-token: write}

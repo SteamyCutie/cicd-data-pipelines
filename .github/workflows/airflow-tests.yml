@@ -1,0 +1,33 @@
+name: Airflow CI
+on: workflow_call
+jobs:
+  airflow:
+    name: DAG integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__CORE__DAGS_FOLDER: ${{ github.workspace }}/airflow/dags
+      DBT_SEND_ANONYMOUS_USAGE_STATS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dbt and Airflow into separate environments
+        run: |
+          python -m venv "$RUNNER_TEMP/dbt"
+          "$RUNNER_TEMP/dbt/bin/pip" install -r requirements.txt
+          echo "DBT_BIN=$RUNNER_TEMP/dbt/bin/dbt" >> "$GITHUB_ENV"
+          pip install apache-airflow==2.11.0 --constraint \
+            https://raw.githubusercontent.com/apache/airflow/constraints-2.11.0/constraints-3.11.txt
+          pip install duckdb==1.3.2 pytest==8.4.2
+      - run: airflow db migrate
+      - run: pytest -q airflow/tests --junitxml=reports/airflow.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: airflow-test-results
+          path: reports/airflow.xml
+          retention-days: 14

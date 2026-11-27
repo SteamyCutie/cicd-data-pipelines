@@ -1,0 +1,16 @@
+retail:
+  target: ci
+  outputs:
+    ci:
+      type: duckdb
+      path: "{{ env_var('WAREHOUSE_PATH', 'retail.duckdb') }}"
+      schema: "{{ env_var('DBT_SCHEMA', 'analytics') }}"
+      threads: 2
+    cloud:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('GCP_PROJECT', 'example-project') }}"
+      dataset: "{{ env_var('DBT_SCHEMA', 'dev_analytics') }}"
+      location: us-central1
+      maximum_bytes_billed: 100000000
+      threads: 2

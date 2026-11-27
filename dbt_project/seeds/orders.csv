@@ -1,0 +1,6 @@
+order_id,customer_id,order_date,status,amount_cents
+101,1,2025-06-01,paid,1250
+102,2,2025-06-01,cancelled,5000
+103,2,2025-06-01,paid,3750
+104,3,2025-06-02,paid,2000
+105,1,2025-06-03,cancelled,700

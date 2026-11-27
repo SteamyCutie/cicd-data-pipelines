@@ -1,0 +1,31 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: black
+        name: Format Python
+        entry: black
+        language: system
+        types: [python]
+      - id: yamllint
+        name: Lint YAML
+        entry: yamllint
+        language: system
+        types: [yaml]
+      - id: sqlfluff
+        name: Lint SQL
+        entry: sqlfluff lint
+        language: system
+        types: [sql]
+      - id: sqlfluff-fix
+        name: Format SQL
+        entry: sqlfluff fix
+        language: system
+        stages: [manual]
+        types: [sql]

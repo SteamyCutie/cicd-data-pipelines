@@ -1,0 +1,51 @@
+name: Deploy an environment
+on:
+  workflow_call:
+    inputs:
+      stage:
+        type: string
+        required: true
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.stage }}
+    concurrency:
+      group: release-${{ inputs.stage }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: 'true'
+      TF_VAR_project_id: ${{ vars.GCP_PROJECT }}
+      GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      STAGE: ${{ inputs.stage }}
+      DBT_SCHEMA: ${{ inputs.stage }}_analytics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+      - name: Plan against locked remote state and apply the saved plan
+        working-directory: terraform
+        run: |
+          terraform init -input=false -lockfile=readonly -backend-config="bucket=$STATE_BUCKET" -backend-config="prefix=retail/$STAGE"
+          terraform plan -input=false -lock-timeout=5m -out="$RUNNER_TEMP/release.tfplan" -var-file="environments/$STAGE.tfvars"
+          terraform apply -input=false -lock-timeout=5m "$RUNNER_TEMP/release.tfplan"
+          terraform output
+      - run: pip install dbt-core==1.10.13 dbt-bigquery==1.10.2
+      - name: Deploy and validate marts
+        working-directory: dbt_project
+        run: dbt build --target cloud --profiles-dir .
+      - if: always()
+        run: python scripts/dbt_summary.py >> "$GITHUB_STEP_SUMMARY"

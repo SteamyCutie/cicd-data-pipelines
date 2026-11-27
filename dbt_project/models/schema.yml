@@ -1,0 +1,36 @@
+version: 2
+models:
+  - name: stg_customers
+    description: One row per customer and normalized segment.
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: segment
+        data_tests: [not_null]
+  - name: stg_orders
+    description: One row per order, including cancellations.
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: amount_cents
+        data_tests: [not_null]
+      - name: order_date
+        data_tests: [not_null]
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: customer_id
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [paid, cancelled]
+  - name: fct_daily_revenue
+    description: One row per active order date and customer segment; revenue counts paid orders only.
+    columns:
+      - name: revenue_cents
+        data_tests: [not_null]

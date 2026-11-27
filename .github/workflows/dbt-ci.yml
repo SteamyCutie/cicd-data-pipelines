@@ -1,0 +1,30 @@
+name: dbt CI
+on: workflow_call
+jobs:
+  dbt:
+    name: SQL and data tests
+    runs-on: ubuntu-latest
+    env:
+      WAREHOUSE_PATH: ${{ github.workspace }}/ci.duckdb
+      DBT_SCHEMA: ci_${{ github.run_id }}
+      DBT_SEND_ANONYMOUS_USAGE_STATS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: sqlfluff lint dbt_project/models dbt_project/tests
+      - run: dbt build --target ci --profiles-dir .
+        working-directory: dbt_project
+      - if: always()
+        run: python scripts/dbt_summary.py >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dbt-evidence
+          path: |
+            dbt_project/target/manifest.json
+            dbt_project/target/run_results.json
+          retention-days: 14
